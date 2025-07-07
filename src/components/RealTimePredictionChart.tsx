@@ -1,23 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Line } from 'react-chartjs-2';
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  Title,
-  Tooltip,
-  Legend,
-  ChartOptions
-} from 'chart.js';
-import { TrendingUp, RefreshCw, AlertCircle, CheckCircle, Activity, BarChart3, Play, Pause } from 'lucide-react';
+import { Chart as ChartJS, TimeScale, LinearScale, Title, Tooltip, Legend } from 'chart.js';
+import { CandlestickController, CandlestickElement } from 'chartjs-chart-financial';
+import 'chartjs-adapter-date-fns';
+import { Chart } from 'react-chartjs-2';
+import { TrendingUp, RefreshCw, AlertCircle, Activity, BarChart3, Play, Pause, ZoomIn, ZoomOut } from 'lucide-react';
 
 ChartJS.register(
-  CategoryScale,
+  TimeScale,
   LinearScale,
-  PointElement,
-  LineElement,
+  CandlestickController,
+  CandlestickElement,
   Title,
   Tooltip,
   Legend
@@ -27,11 +19,34 @@ interface RealTimePredictionChartProps {
   isActive: boolean;
 }
 
-interface PricePoint {
-  timestamp: string;
-  bitcoin: { actual: number; tft: number; nbeats: number; deepar: number };
-  ethereum: { actual: number; tft: number; nbeats: number; deepar: number };
-  solana: { actual: number; tft: number; nbeats: number; deepar: number };
+interface CandleData {
+  x: number; // timestamp
+  o: number; // open
+  h: number; // high
+  l: number; // low
+  c: number; // close
+}
+
+interface PredictionData {
+  timestamp: number;
+  bitcoin: {
+    actual: CandleData;
+    tft: number;
+    nbeats: number;
+    deepar: number;
+  };
+  ethereum: {
+    actual: CandleData;
+    tft: number;
+    nbeats: number;
+    deepar: number;
+  };
+  solana: {
+    actual: CandleData;
+    tft: number;
+    nbeats: number;
+    deepar: number;
+  };
 }
 
 interface ModelPerformance {
@@ -42,42 +57,78 @@ interface ModelPerformance {
 }
 
 const RealTimePredictionChart: React.FC<RealTimePredictionChartProps> = ({ isActive }) => {
-  const [priceHistory, setPriceHistory] = useState<PricePoint[]>([]);
+  const [priceHistory, setPriceHistory] = useState<PredictionData[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [selectedCrypto, setSelectedCrypto] = useState<'bitcoin' | 'ethereum' | 'solana'>('bitcoin');
   const [modelPerformance, setModelPerformance] = useState<ModelPerformance[]>([]);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const [zoomLevel, setZoomLevel] = useState(1);
+  const [showPredictions, setShowPredictions] = useState(true);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const chartRef = useRef<any>(null);
 
   const cryptoConfig = {
-    bitcoin: { name: 'Bitcoin', symbol: 'BTC', basePrice: 45000, color: '#F7931A' },
-    ethereum: { name: 'Ethereum', symbol: 'ETH', basePrice: 2300, color: '#627EEA' },
-    solana: { name: 'Solana', symbol: 'SOL', basePrice: 85, color: '#9945FF' }
+    bitcoin: { name: 'Bitcoin', symbol: 'BTC', basePrice: 45000, color: '#F7931A', volatility: 0.02 },
+    ethereum: { name: 'Ethereum', symbol: 'ETH', basePrice: 2300, color: '#627EEA', volatility: 0.025 },
+    solana: { name: 'Solana', symbol: 'SOL', basePrice: 85, color: '#9945FF', volatility: 0.03 }
   };
 
-  const generatePricePoint = (): PricePoint => {
-    const now = new Date();
-    const timestamp = now.toLocaleTimeString();
+  const generateCandleData = (basePrice: number, volatility: number, previousClose?: number): CandleData => {
+    const timestamp = Date.now();
+    const open = previousClose || basePrice * (1 + (Math.random() - 0.5) * volatility);
     
-    const generateCryptoPrices = (basePrice: number, volatility: number) => {
-      const actual = basePrice * (1 + (Math.random() - 0.5) * volatility);
+    // Generate realistic OHLC data
+    const changePercent = (Math.random() - 0.5) * volatility;
+    const close = open * (1 + changePercent);
+    
+    const high = Math.max(open, close) * (1 + Math.random() * volatility * 0.5);
+    const low = Math.min(open, close) * (1 - Math.random() * volatility * 0.5);
+
+    return {
+      x: timestamp,
+      o: open,
+      h: high,
+      l: low,
+      c: close
+    };
+  };
+
+  const generatePredictionData = (previousData?: PredictionData): PredictionData => {
+    const timestamp = Date.now();
+    
+    const generateCryptoPredictions = (
+      config: typeof cryptoConfig[keyof typeof cryptoConfig], 
+      previousClose?: number
+    ) => {
+      const actual = generateCandleData(config.basePrice, config.volatility, previousClose);
+      const currentPrice = actual.c;
+      
       return {
         actual,
-        tft: actual * (1 + (Math.random() - 0.5) * volatility * 0.8),
-        nbeats: actual * (1 + (Math.random() - 0.5) * volatility * 0.9),
-        deepar: actual * (1 + (Math.random() - 0.5) * volatility * 1.1)
+        tft: currentPrice * (1 + (Math.random() - 0.5) * config.volatility * 0.8),
+        nbeats: currentPrice * (1 + (Math.random() - 0.5) * config.volatility * 0.9),
+        deepar: currentPrice * (1 + (Math.random() - 0.5) * config.volatility * 1.1)
       };
     };
 
     return {
       timestamp,
-      bitcoin: generateCryptoPrices(45000, 0.003),
-      ethereum: generateCryptoPrices(2300, 0.004),
-      solana: generateCryptoPrices(85, 0.006)
+      bitcoin: generateCryptoPredictions(
+        cryptoConfig.bitcoin, 
+        previousData?.bitcoin.actual.c
+      ),
+      ethereum: generateCryptoPredictions(
+        cryptoConfig.ethereum, 
+        previousData?.ethereum.actual.c
+      ),
+      solana: generateCryptoPredictions(
+        cryptoConfig.solana, 
+        previousData?.solana.actual.c
+      )
     };
   };
 
-  const calculateModelPerformance = (history: PricePoint[]): ModelPerformance[] => {
+  const calculateModelPerformance = (history: PredictionData[]): ModelPerformance[] => {
     if (history.length < 2) return [];
 
     const models = ['tft', 'nbeats', 'deepar'];
@@ -89,7 +140,7 @@ const RealTimePredictionChart: React.FC<RealTimePredictionChartProps> = ({ isAct
       
       cryptos.forEach(crypto => {
         history.forEach(point => {
-          const actual = point[crypto].actual;
+          const actual = point[crypto].actual.c;
           const predicted = point[crypto][model as keyof typeof point[typeof crypto]];
           const error = Math.abs((predicted - actual) / actual);
           totalError += error;
@@ -112,9 +163,10 @@ const RealTimePredictionChart: React.FC<RealTimePredictionChartProps> = ({ isAct
   const startRealTimeUpdates = () => {
     setIsRunning(true);
     intervalRef.current = setInterval(() => {
-      const newPoint = generatePricePoint();
       setPriceHistory(prev => {
-        const updated = [...prev, newPoint].slice(-50); // Keep last 50 points
+        const lastData = prev[prev.length - 1];
+        const newPoint = generatePredictionData(lastData);
+        const updated = [...prev, newPoint].slice(-200); // Keep last 200 points for smooth scrolling
         setModelPerformance(calculateModelPerformance(updated));
         return updated;
       });
@@ -130,10 +182,68 @@ const RealTimePredictionChart: React.FC<RealTimePredictionChartProps> = ({ isAct
     }
   };
 
+  const handleZoomIn = () => {
+    setZoomLevel(prev => Math.min(prev * 1.5, 10));
+  };
+
+  const handleZoomOut = () => {
+    setZoomLevel(prev => Math.max(prev / 1.5, 0.1));
+  };
+
   useEffect(() => {
     if (isActive) {
-      // Initialize with some data points
-      const initialData = Array.from({ length: 10 }, () => generatePricePoint());
+      // Initialize with historical data (simulate past month)
+      const initialData: PredictionData[] = [];
+      const startTime = Date.now() - (30 * 24 * 60 * 60 * 1000); // 30 days ago
+      
+      for (let i = 0; i < 50; i++) {
+        const timestamp = startTime + (i * 24 * 60 * 60 * 1000); // Daily intervals
+        const previousData = initialData[i - 1];
+        
+        const data: PredictionData = {
+          timestamp,
+          bitcoin: {
+            actual: generateCandleData(
+              cryptoConfig.bitcoin.basePrice, 
+              cryptoConfig.bitcoin.volatility, 
+              previousData?.bitcoin.actual.c
+            ),
+            tft: 0, nbeats: 0, deepar: 0
+          },
+          ethereum: {
+            actual: generateCandleData(
+              cryptoConfig.ethereum.basePrice, 
+              cryptoConfig.ethereum.volatility, 
+              previousData?.ethereum.actual.c
+            ),
+            tft: 0, nbeats: 0, deepar: 0
+          },
+          solana: {
+            actual: generateCandleData(
+              cryptoConfig.solana.basePrice, 
+              cryptoConfig.solana.volatility, 
+              previousData?.solana.actual.c
+            ),
+            tft: 0, nbeats: 0, deepar: 0
+          }
+        };
+
+        // Generate predictions based on actual close prices
+        data.bitcoin.tft = data.bitcoin.actual.c * (1 + (Math.random() - 0.5) * 0.016);
+        data.bitcoin.nbeats = data.bitcoin.actual.c * (1 + (Math.random() - 0.5) * 0.018);
+        data.bitcoin.deepar = data.bitcoin.actual.c * (1 + (Math.random() - 0.5) * 0.022);
+        
+        data.ethereum.tft = data.ethereum.actual.c * (1 + (Math.random() - 0.5) * 0.020);
+        data.ethereum.nbeats = data.ethereum.actual.c * (1 + (Math.random() - 0.5) * 0.023);
+        data.ethereum.deepar = data.ethereum.actual.c * (1 + (Math.random() - 0.5) * 0.028);
+        
+        data.solana.tft = data.solana.actual.c * (1 + (Math.random() - 0.5) * 0.024);
+        data.solana.nbeats = data.solana.actual.c * (1 + (Math.random() - 0.5) * 0.027);
+        data.solana.deepar = data.solana.actual.c * (1 + (Math.random() - 0.5) * 0.033);
+
+        initialData.push(data);
+      }
+      
       setPriceHistory(initialData);
       setModelPerformance(calculateModelPerformance(initialData));
     }
@@ -146,51 +256,73 @@ const RealTimePredictionChart: React.FC<RealTimePredictionChartProps> = ({ isAct
   }, [isActive]);
 
   const chartData = {
-    labels: priceHistory.map(point => point.timestamp),
     datasets: [
       {
-        label: 'Actual Price',
-        data: priceHistory.map(point => point[selectedCrypto].actual),
+        label: `${cryptoConfig[selectedCrypto].name} Price`,
+        data: priceHistory.map(point => ({
+          x: point.timestamp,
+          o: point[selectedCrypto].actual.o,
+          h: point[selectedCrypto].actual.h,
+          l: point[selectedCrypto].actual.l,
+          c: point[selectedCrypto].actual.c
+        })),
         borderColor: cryptoConfig[selectedCrypto].color,
-        backgroundColor: cryptoConfig[selectedCrypto].color + '20',
-        borderWidth: 3,
-        pointRadius: 2,
-        tension: 0.1
+        backgroundColor: cryptoConfig[selectedCrypto].color,
+        borderWidth: 1,
+        color: {
+          up: '#10B981', // Green for bullish candles
+          down: '#EF4444', // Red for bearish candles
+          unchanged: '#6B7280' // Gray for unchanged
+        }
       },
-      {
-        label: 'TFT Prediction',
-        data: priceHistory.map(point => point[selectedCrypto].tft),
-        borderColor: '#10B981',
-        backgroundColor: '#10B98120',
-        borderWidth: 2,
-        pointRadius: 1,
-        borderDash: [5, 5],
-        tension: 0.1
-      },
-      {
-        label: 'N-BEATS Prediction',
-        data: priceHistory.map(point => point[selectedCrypto].nbeats),
-        borderColor: '#3B82F6',
-        backgroundColor: '#3B82F620',
-        borderWidth: 2,
-        pointRadius: 1,
-        borderDash: [10, 5],
-        tension: 0.1
-      },
-      {
-        label: 'DeepAR Prediction',
-        data: priceHistory.map(point => point[selectedCrypto].deepar),
-        borderColor: '#8B5CF6',
-        backgroundColor: '#8B5CF620',
-        borderWidth: 2,
-        pointRadius: 1,
-        borderDash: [15, 5],
-        tension: 0.1
-      }
+      ...(showPredictions ? [
+        {
+          label: 'TFT Prediction',
+          type: 'line' as const,
+          data: priceHistory.map(point => ({
+            x: point.timestamp,
+            y: point[selectedCrypto].tft
+          })),
+          borderColor: '#10B981',
+          backgroundColor: 'transparent',
+          borderWidth: 2,
+          borderDash: [5, 5],
+          pointRadius: 0,
+          tension: 0.1
+        },
+        {
+          label: 'N-BEATS Prediction',
+          type: 'line' as const,
+          data: priceHistory.map(point => ({
+            x: point.timestamp,
+            y: point[selectedCrypto].nbeats
+          })),
+          borderColor: '#3B82F6',
+          backgroundColor: 'transparent',
+          borderWidth: 2,
+          borderDash: [10, 5],
+          pointRadius: 0,
+          tension: 0.1
+        },
+        {
+          label: 'DeepAR Prediction',
+          type: 'line' as const,
+          data: priceHistory.map(point => ({
+            x: point.timestamp,
+            y: point[selectedCrypto].deepar
+          })),
+          borderColor: '#8B5CF6',
+          backgroundColor: 'transparent',
+          borderWidth: 2,
+          borderDash: [15, 5],
+          pointRadius: 0,
+          tension: 0.1
+        }
+      ] : [])
     ]
   };
 
-  const chartOptions: ChartOptions<'line'> = {
+  const chartOptions = {
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
@@ -199,58 +331,77 @@ const RealTimePredictionChart: React.FC<RealTimePredictionChartProps> = ({ isAct
       },
       title: {
         display: true,
-        text: `${cryptoConfig[selectedCrypto].name} Real-Time Price Predictions`,
+        text: `${cryptoConfig[selectedCrypto].name} Candlestick Chart with Predictions`,
         font: {
           size: 16,
           weight: 'bold'
         }
       },
       tooltip: {
-        mode: 'index',
+        mode: 'index' as const,
         intersect: false,
         callbacks: {
-          label: function(context) {
-            const value = context.parsed.y;
-            return `${context.dataset.label}: $${value.toLocaleString(undefined, { 
-              minimumFractionDigits: 2, 
-              maximumFractionDigits: 2 
-            })}`;
+          title: function(context: any) {
+            return new Date(context[0].parsed.x).toLocaleString();
+          },
+          label: function(context: any) {
+            const data = context.parsed;
+            if (data.o !== undefined) {
+              return [
+                `Open: $${data.o.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+                `High: $${data.h.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+                `Low: $${data.l.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+                `Close: $${data.c.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+              ];
+            } else {
+              return `${context.dataset.label}: $${data.y.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            }
           }
         }
       }
     },
     scales: {
       x: {
-        display: true,
+        type: 'time' as const,
+        time: {
+          unit: 'month' as const,
+          displayFormats: {
+            month: 'MMM yyyy'
+          }
+        },
         title: {
           display: true,
-          text: 'Time'
+          text: 'Date'
         },
         ticks: {
-          maxTicksLimit: 10
+          maxTicksLimit: 12,
+          autoSkip: true
         }
       },
       y: {
-        display: true,
         title: {
           display: true,
           text: 'Price (USD)'
         },
         ticks: {
-          callback: function(value) {
+          callback: function(value: any) {
             return '$' + Number(value).toLocaleString();
           }
         }
       }
     },
     interaction: {
-      mode: 'nearest',
-      axis: 'x',
+      mode: 'nearest' as const,
+      axis: 'x' as const,
       intersect: false
     },
     animation: {
       duration: 750,
-      easing: 'easeInOutQuart'
+      easing: 'easeInOutQuart' as const
+    },
+    parsing: {
+      xAxisKey: 'x',
+      yAxisKey: 'c'
     }
   };
 
@@ -266,14 +417,22 @@ const RealTimePredictionChart: React.FC<RealTimePredictionChartProps> = ({ isAct
     }
   };
 
+  const getCurrentCandle = () => {
+    if (priceHistory.length === 0) return null;
+    const latest = priceHistory[priceHistory.length - 1];
+    return latest[selectedCrypto].actual;
+  };
+
+  const currentCandle = getCurrentCandle();
+
   if (!isActive) {
     return (
       <div className="bg-white rounded-lg shadow-lg p-6 opacity-50">
         <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
           <BarChart3 className="w-5 h-5 mr-2" />
-          Real-Time Prediction Charts
+          Candlestick Chart - Real-Time Predictions
         </h3>
-        <p className="text-gray-500">Complete the analysis to enable real-time prediction charts...</p>
+        <p className="text-gray-500">Complete the analysis to enable real-time candlestick charts...</p>
       </div>
     );
   }
@@ -283,10 +442,40 @@ const RealTimePredictionChart: React.FC<RealTimePredictionChartProps> = ({ isAct
       <div className="flex items-center justify-between mb-6">
         <h3 className="text-lg font-semibold text-gray-800 flex items-center">
           <BarChart3 className="w-5 h-5 mr-2" />
-          Real-Time Prediction Charts
+          Candlestick Chart - Real-Time Predictions
         </h3>
         
         <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={handleZoomOut}
+              className="p-1 border border-gray-300 rounded hover:bg-gray-100"
+              title="Zoom Out"
+            >
+              <ZoomOut className="w-4 h-4" />
+            </button>
+            <span className="text-sm text-gray-600">
+              {(zoomLevel * 100).toFixed(0)}%
+            </span>
+            <button
+              onClick={handleZoomIn}
+              className="p-1 border border-gray-300 rounded hover:bg-gray-100"
+              title="Zoom In"
+            >
+              <ZoomIn className="w-4 h-4" />
+            </button>
+          </div>
+          
+          <label className="flex items-center space-x-2">
+            <input
+              type="checkbox"
+              checked={showPredictions}
+              onChange={(e) => setShowPredictions(e.target.checked)}
+              className="rounded"
+            />
+            <span className="text-sm text-gray-600">Show Predictions</span>
+          </label>
+          
           <select
             value={selectedCrypto}
             onChange={(e) => setSelectedCrypto(e.target.value as typeof selectedCrypto)}
@@ -308,12 +497,12 @@ const RealTimePredictionChart: React.FC<RealTimePredictionChartProps> = ({ isAct
             {isRunning ? (
               <>
                 <Pause className="w-4 h-4 mr-2" />
-                Stop Live Updates
+                Stop
               </>
             ) : (
               <>
                 <Play className="w-4 h-4 mr-2" />
-                Start Live Updates
+                Start
               </>
             )}
           </button>
@@ -338,58 +527,63 @@ const RealTimePredictionChart: React.FC<RealTimePredictionChartProps> = ({ isAct
         
         <div className="flex items-center space-x-4">
           <div className="text-sm text-gray-600">
-            Data Points: {priceHistory.length}
+            Candles: {priceHistory.length}
           </div>
           <div className="text-sm text-gray-600">
-            Update Rate: 1 sec
+            Timeframe: 1 sec
           </div>
         </div>
       </div>
 
-      {/* Current Prices Display */}
-      {priceHistory.length > 0 && (
-        <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
-          {Object.entries(cryptoConfig).map(([key, config]) => {
-            const latestData = priceHistory[priceHistory.length - 1];
-            const cryptoData = latestData[key as keyof typeof latestData];
-            
-            return (
-              <div 
-                key={key}
-                className={`p-4 rounded-lg border-2 transition-all cursor-pointer ${
-                  selectedCrypto === key 
-                    ? 'border-blue-400 bg-blue-50' 
-                    : 'border-gray-200 bg-gray-50 hover:border-gray-300'
-                }`}
-                onClick={() => setSelectedCrypto(key as typeof selectedCrypto)}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <h4 className="font-bold text-gray-800">{config.name}</h4>
-                  <span className="text-sm text-gray-500">{config.symbol}</span>
-                </div>
-                <div className="text-lg font-bold" style={{ color: config.color }}>
-                  {formatPrice(cryptoData.actual)}
-                </div>
-                <div className="text-xs text-gray-600 mt-1">
-                  TFT: {formatPrice(cryptoData.tft)} | 
-                  N-BEATS: {formatPrice(cryptoData.nbeats)} | 
-                  DeepAR: {formatPrice(cryptoData.deepar)}
-                </div>
+      {/* Current Candle Info */}
+      {currentCandle && (
+        <div className="mb-6 bg-gray-50 rounded-lg p-4">
+          <h4 className="font-medium text-gray-800 mb-3">
+            Current {cryptoConfig[selectedCrypto].name} Candle
+          </h4>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="text-center">
+              <div className="text-sm text-gray-600">Open</div>
+              <div className="font-bold text-gray-800">{formatPrice(currentCandle.o)}</div>
+            </div>
+            <div className="text-center">
+              <div className="text-sm text-gray-600">High</div>
+              <div className="font-bold text-green-600">{formatPrice(currentCandle.h)}</div>
+            </div>
+            <div className="text-center">
+              <div className="text-sm text-gray-600">Low</div>
+              <div className="font-bold text-red-600">{formatPrice(currentCandle.l)}</div>
+            </div>
+            <div className="text-center">
+              <div className="text-sm text-gray-600">Close</div>
+              <div className={`font-bold ${currentCandle.c >= currentCandle.o ? 'text-green-600' : 'text-red-600'}`}>
+                {formatPrice(currentCandle.c)}
               </div>
-            );
-          })}
+            </div>
+          </div>
+          <div className="mt-2 text-center">
+            <span className={`text-sm font-medium ${currentCandle.c >= currentCandle.o ? 'text-green-600' : 'text-red-600'}`}>
+              {currentCandle.c >= currentCandle.o ? '🕯️ Bullish (Green)' : '🕯️ Bearish (Red)'} | 
+              Change: {((currentCandle.c - currentCandle.o) / currentCandle.o * 100).toFixed(2)}%
+            </span>
+          </div>
         </div>
       )}
 
       {/* Chart */}
-      <div className="mb-6" style={{ height: '400px' }}>
+      <div className="mb-6" style={{ height: '500px' }}>
         {priceHistory.length > 0 ? (
-          <Line data={chartData} options={chartOptions} />
+          <Chart 
+            ref={chartRef}
+            type="candlestick" 
+            data={chartData} 
+            options={chartOptions} 
+          />
         ) : (
           <div className="flex items-center justify-center h-full bg-gray-50 rounded-lg">
             <div className="text-center">
               <Activity className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-              <p className="text-gray-500">Waiting for data...</p>
+              <p className="text-gray-500">Loading candlestick data...</p>
             </div>
           </div>
         )}
@@ -403,7 +597,7 @@ const RealTimePredictionChart: React.FC<RealTimePredictionChartProps> = ({ isAct
             Real-Time Model Performance
           </h4>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {modelPerformance.map((model, index) => (
+            {modelPerformance.map((model) => (
               <div key={model.model} className="bg-gray-50 rounded-lg p-4">
                 <div className="flex items-center justify-between mb-2">
                   <span className="font-medium text-gray-800">{model.model}</span>
@@ -444,23 +638,33 @@ const RealTimePredictionChart: React.FC<RealTimePredictionChartProps> = ({ isAct
       {/* Chart Legend */}
       <div className="bg-gray-50 rounded-lg p-4">
         <h5 className="font-medium text-gray-800 mb-3">Chart Legend</h5>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-          <div className="flex items-center">
-            <div className="w-4 h-0.5 bg-orange-500 mr-2"></div>
-            <span>Actual Price (Solid)</span>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+          <div className="space-y-2">
+            <div className="flex items-center">
+              <div className="w-4 h-6 bg-green-500 mr-2 rounded-sm"></div>
+              <span>Bullish Candle (Close > Open)</span>
+            </div>
+            <div className="flex items-center">
+              <div className="w-4 h-6 bg-red-500 mr-2 rounded-sm"></div>
+              <span>Bearish Candle (Close < Open)</span>
+            </div>
           </div>
-          <div className="flex items-center">
-            <div className="w-4 h-0.5 bg-green-500 border-dashed border-t-2 border-green-500 mr-2"></div>
-            <span>TFT Prediction</span>
-          </div>
-          <div className="flex items-center">
-            <div className="w-4 h-0.5 bg-blue-500 border-dashed border-t-2 border-blue-500 mr-2"></div>
-            <span>N-BEATS Prediction</span>
-          </div>
-          <div className="flex items-center">
-            <div className="w-4 h-0.5 bg-purple-500 border-dashed border-t-2 border-purple-500 mr-2"></div>
-            <span>DeepAR Prediction</span>
-          </div>
+          {showPredictions && (
+            <div className="space-y-2">
+              <div className="flex items-center">
+                <div className="w-4 h-0.5 bg-green-500 border-dashed border-t-2 border-green-500 mr-2"></div>
+                <span>TFT Prediction</span>
+              </div>
+              <div className="flex items-center">
+                <div className="w-4 h-0.5 bg-blue-500 border-dashed border-t-2 border-blue-500 mr-2"></div>
+                <span>N-BEATS Prediction</span>
+              </div>
+              <div className="flex items-center">
+                <div className="w-4 h-0.5 bg-purple-500 border-dashed border-t-2 border-purple-500 mr-2"></div>
+                <span>DeepAR Prediction</span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -469,11 +673,11 @@ const RealTimePredictionChart: React.FC<RealTimePredictionChartProps> = ({ isAct
         <div className="flex items-start">
           <AlertCircle className="w-5 h-5 text-yellow-600 mr-2 mt-0.5" />
           <div>
-            <h5 className="font-medium text-yellow-800 mb-1">Real-Time Simulation</h5>
+            <h5 className="font-medium text-yellow-800 mb-1">Candlestick Chart Simulation</h5>
             <p className="text-sm text-yellow-700">
-              This is a real-time simulation showing how the trained models would perform with live data. 
-              The prices are generated using realistic volatility patterns but are not actual market prices. 
-              In production, this would connect to live cryptocurrency APIs and use the actual trained models.
+              Candlestick chart menampilkan data OHLC (Open, High, Low, Close) dengan lilin hijau untuk kenaikan harga 
+              dan lilin merah untuk penurunan harga. Data bergeser ke kiri saat data baru masuk, dengan sumbu X 
+              menampilkan tanggal per bulan. Fitur zoom tersedia untuk analisis detail.
             </p>
           </div>
         </div>
