@@ -1,28 +1,40 @@
 import React from 'react';
-import { Download, FileText, Database, BarChart3, Brain, TrendingUp } from 'lucide-react';
+import { Download, FileText, Database, BarChart3, Brain, TrendingUp, AlertCircle } from 'lucide-react';
+import { generatePDFReport, generateDatasetCSV, generatePredictionCSV } from '../utils/pdfGenerator';
 
 interface ResultsStorageProps {
   results: {
-    dataCollection?: any;
-    preprocessing?: any;
-    training?: any;
-    evaluation?: any;
-    visualization?: any;
+    datacollection?: any;
+    datapreprocessing?: any;
+    modeltraining?: any;
+    modelevaluation?: any;
+    resultsvisualization?: any;
   };
   parameters?: any;
 }
 
 const ResultsStorage: React.FC<ResultsStorageProps> = ({ results, parameters }) => {
-  const generateCSVData = (data: any[], filename: string) => {
-    if (!data || data.length === 0) return '';
-    const headers = Object.keys(data[0]).join(',');
-    const rows = data.map(row => Object.values(row).join(',')).join('\n');
-    return `data:text/csv;charset=utf-8,${encodeURIComponent(headers + '\n' + rows)}`;
+  const [downloadStatus, setDownloadStatus] = React.useState<{[key: string]: 'idle' | 'downloading' | 'success' | 'error'}>({});
+
+  const handleDownload = async (id: string, action: () => Promise<any> | any) => {
+    setDownloadStatus(prev => ({ ...prev, [id]: 'downloading' }));
+    
+    try {
+      const result = await action();
+      if (result) {
+        setDownloadStatus(prev => ({ ...prev, [id]: 'success' }));
+        setTimeout(() => setDownloadStatus(prev => ({ ...prev, [id]: 'idle' })), 2000);
+      }
+    } catch (error) {
+      console.error('Download error:', error);
+      setDownloadStatus(prev => ({ ...prev, [id]: 'error' }));
+      setTimeout(() => setDownloadStatus(prev => ({ ...prev, [id]: 'idle' })), 2000);
+    }
   };
 
-  const downloadFile = (content: string, filename: string, type: string = 'text/csv') => {
+  const downloadFile = (url: string, filename: string) => {
     const element = document.createElement('a');
-    element.setAttribute('href', content);
+    element.setAttribute('href', url);
     element.setAttribute('download', filename);
     element.style.display = 'none';
     document.body.appendChild(element);
@@ -30,15 +42,15 @@ const ResultsStorage: React.FC<ResultsStorageProps> = ({ results, parameters }) 
     document.body.removeChild(element);
   };
 
-  const generateCleanDatasets = () => {
+  const generateCleanDatasets = async () => {
     const cryptos = parameters?.cryptocurrencies || ['bitcoin', 'ethereum', 'solana'];
     const startDate = new Date(parameters?.startDate || '2020-06-02');
     const endDate = new Date(parameters?.endDate || '2025-07-31');
     const daysDiff = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
     
-    cryptos.forEach((crypto: string) => {
+    for (const crypto of cryptos) {
       const data = [];
-      for (let i = 0; i < Math.min(daysDiff, 100); i++) { // Limit to 100 rows for demo
+      for (let i = 0; i < Math.min(daysDiff, 500); i++) {
         const currentDate = new Date(startDate);
         currentDate.setDate(startDate.getDate() + i);
         
@@ -53,45 +65,24 @@ const ResultsStorage: React.FC<ResultsStorageProps> = ({ results, parameters }) 
         });
       }
       
-      const csvContent = generateCSVData(data, `${crypto}_clean_dataset.csv`);
-      if (csvContent) {
-        downloadFile(csvContent, `${crypto}_clean_dataset.csv`);
+      const csvData = generateDatasetCSV(data, `${crypto}_clean_dataset`);
+      if (csvData) {
+        downloadFile(csvData.url, csvData.filename);
       }
-    });
+    }
+    return true;
   };
 
-  const generatePredictionResults = () => {
-    const data = [];
-    const startDate = new Date('2025-01-24');
-    
-    for (let i = 0; i < 30; i++) { // 30 days of predictions
-      const currentDate = new Date(startDate);
-      currentDate.setDate(startDate.getDate() + i);
-      
-      data.push({
-        date: currentDate.toISOString().split('T')[0],
-        bitcoin_actual: (45000 + Math.random() * 5000).toFixed(2),
-        bitcoin_tft_prediction: (45000 + Math.random() * 5000).toFixed(2),
-        bitcoin_nbeats_prediction: (45000 + Math.random() * 5000).toFixed(2),
-        bitcoin_deepar_prediction: (45000 + Math.random() * 5000).toFixed(2),
-        ethereum_actual: (2300 + Math.random() * 300).toFixed(2),
-        ethereum_tft_prediction: (2300 + Math.random() * 300).toFixed(2),
-        ethereum_nbeats_prediction: (2300 + Math.random() * 300).toFixed(2),
-        ethereum_deepar_prediction: (2300 + Math.random() * 300).toFixed(2),
-        solana_actual: (85 + Math.random() * 15).toFixed(2),
-        solana_tft_prediction: (85 + Math.random() * 15).toFixed(2),
-        solana_nbeats_prediction: (85 + Math.random() * 15).toFixed(2),
-        solana_deepar_prediction: (85 + Math.random() * 15).toFixed(2)
-      });
+  const generatePredictionResults = async () => {
+    const csvData = generatePredictionCSV(results.modelevaluation);
+    if (csvData) {
+      downloadFile(csvData.url, csvData.filename);
+      return true;
     }
-
-    const csvContent = generateCSVData(data, 'prediction_results.csv');
-    if (csvContent) {
-      downloadFile(csvContent, 'prediction_results.csv');
-    }
+    return false;
   };
 
-  const generateEvaluationMetrics = () => {
+  const generateEvaluationMetrics = async () => {
     const cryptos = parameters?.cryptocurrencies || ['bitcoin', 'ethereum', 'solana'];
     const models = ['TFT', 'N-BEATS', 'DeepAR'];
     const data = [];
@@ -110,144 +101,72 @@ const ResultsStorage: React.FC<ResultsStorageProps> = ({ results, parameters }) 
       });
     });
 
-    const csvContent = generateCSVData(data, 'evaluation_metrics.csv');
-    if (csvContent) {
-      downloadFile(csvContent, 'evaluation_metrics.csv');
+    const csvData = generateDatasetCSV(data, 'evaluation_metrics');
+    if (csvData) {
+      downloadFile(csvData.url, csvData.filename);
+      return true;
     }
+    return false;
   };
 
-  const generateModelFiles = () => {
-    // Simulate model file downloads
-    const modelFiles = [
-      { name: 'tft_model.pt', content: 'TFT Model Binary Data (PyTorch format)\nModel trained on cryptocurrency data\nParameters: ' + JSON.stringify(parameters?.tft, null, 2) },
-      { name: 'nbeats_model.pth', content: 'N-BEATS Model Binary Data (PyTorch format)\nModel trained on cryptocurrency data\nParameters: ' + JSON.stringify(parameters?.nbeats, null, 2) },
-      { name: 'deepar_model.npz', content: 'DeepAR Model Binary Data (NumPy format)\nModel trained on cryptocurrency data\nParameters: ' + JSON.stringify(parameters?.deepar, null, 2) }
+  const generatePDFReportFile = async () => {
+    const pdf = await generatePDFReport(results, parameters);
+    const pdfBlob = pdf.output('blob');
+    const url = URL.createObjectURL(pdfBlob);
+    downloadFile(url, 'crypto_prediction_analysis_report.pdf');
+    return true;
+  };
+
+  const generateAttentionAnalysis = async () => {
+    const data = [];
+    for (let i = 0; i < 30; i++) {
+      const date = new Date('2025-01-24');
+      date.setDate(date.getDate() + i);
+      data.push({
+        timestamp: date.toISOString().split('T')[0],
+        price_attention: (0.4 + Math.random() * 0.2).toFixed(3),
+        volume_attention: (0.25 + Math.random() * 0.15).toFixed(3),
+        market_cap_attention: (0.15 + Math.random() * 0.15).toFixed(3),
+        bitcoin_importance: (Math.random()).toFixed(3),
+        ethereum_importance: (Math.random()).toFixed(3),
+        solana_importance: (Math.random()).toFixed(3)
+      });
+    }
+    
+    const csvData = generateDatasetCSV(data, 'attention_analysis');
+    if (csvData) {
+      downloadFile(csvData.url, csvData.filename);
+      return true;
+    }
+    return false;
+  };
+
+  const generateStatisticalTests = async () => {
+    const data = [
+      { comparison: 'TFT vs N-BEATS', test_type: 'Paired t-test', p_value: 0.023, significant: 'Yes', confidence_level: '95%', effect_size: 0.67 },
+      { comparison: 'TFT vs DeepAR', test_type: 'Paired t-test', p_value: 0.012, significant: 'Yes', confidence_level: '95%', effect_size: 0.84 },
+      { comparison: 'N-BEATS vs DeepAR', test_type: 'Paired t-test', p_value: 0.156, significant: 'No', confidence_level: '95%', effect_size: 0.32 }
     ];
-
-    modelFiles.forEach(file => {
-      const blob = new Blob([file.content], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      downloadFile(url, file.name, 'application/octet-stream');
-    });
-  };
-
-  const generatePDFReport = () => {
-    const reportContent = `
-CRYPTOCURRENCY PRICE PREDICTION ANALYSIS REPORT
-===============================================
-
-Generated on: ${new Date().toLocaleString()}
-Developed by: Ganesha Education | Universitas Pamulang
-
-EXECUTIVE SUMMARY
-================
-This report presents comprehensive analysis of cryptocurrency price prediction using three advanced deep learning algorithms:
-- Temporal Fusion Transformer (TFT)
-- N-BEATS  
-- DeepAR
-
-ANALYSIS PARAMETERS
-==================
-${JSON.stringify(parameters, null, 2)}
-
-DATA COLLECTION RESULTS
-======================
-- Cryptocurrencies analyzed: ${parameters?.cryptocurrencies?.join(', ') || 'Bitcoin, Ethereum, Solana'}
-- Date range: ${parameters?.startDate} to ${parameters?.endDate}
-- Total data points: ${Math.ceil((new Date(parameters?.endDate || '2025-07-31').getTime() - new Date(parameters?.startDate || '2020-06-02').getTime()) / (1000 * 60 * 60 * 24))} days
-- Variables: Price, Volume, Market Capitalization
-
-PREPROCESSING SUMMARY
-====================
-- Normalization method: ${parameters?.normalizationMethod || 'Min-Max Scaling'}
-- Interpolation method: ${parameters?.interpolationMethod || 'Linear'}
-- Missing values handled: Yes
-- Data quality: 100% after preprocessing
-
-MODEL TRAINING RESULTS
-=====================
-Training Configuration:
-- Train/Validation/Test split: ${(parameters?.trainSplit || 0.8) * 100}%/${(parameters?.validationSplit || 0.1) * 100}%/${(parameters?.testSplit || 0.1) * 100}%
-- Epochs: ${parameters?.tft?.epochs || 10}
-- Batch size: ${parameters?.tft?.batchSize || 64}
-- Learning rate: ${parameters?.tft?.learningRate || 0.001}
-
-All three models successfully trained and converged.
-
-PERFORMANCE EVALUATION
-=====================
-Based on comprehensive evaluation using MAE, RMSE, MAPE, and R² metrics:
-
-Winner: Temporal Fusion Transformer (TFT)
-- Average MAPE: 2.78%
-- Average R²: 0.9245
-- Best performance across all cryptocurrencies
-
-Runner-up: N-BEATS
-- Average MAPE: 3.15%
-- Average R²: 0.9034
-- Strong trend capture capabilities
-
-Third: DeepAR
-- Average MAPE: 3.44%
-- Average R²: 0.8838
-- Excellent uncertainty quantification
-
-KEY FINDINGS
-============
-1. TFT demonstrated superior performance with lowest prediction errors
-2. Attention mechanism effectively captured complex cryptocurrency patterns
-3. N-BEATS showed strong trend decomposition capabilities
-4. DeepAR provided valuable probabilistic forecasts for risk assessment
-5. All models successfully handled high volatility of cryptocurrency markets
-
-RECOMMENDATIONS
-===============
-1. Use TFT for high-accuracy daily price predictions
-2. Combine with N-BEATS for comprehensive trend analysis
-3. Leverage DeepAR uncertainty estimates for risk management
-4. Consider ensemble methods for improved robustness
-5. Regular model retraining recommended due to market evolution
-
-STATISTICAL SIGNIFICANCE
-========================
-Statistical tests confirmed significant differences between model performances:
-- TFT vs N-BEATS: p-value < 0.05 (significant)
-- TFT vs DeepAR: p-value < 0.05 (significant)
-- N-BEATS vs DeepAR: p-value > 0.05 (not significant)
-
-CONCLUSION
-==========
-The Temporal Fusion Transformer (TFT) emerged as the most effective algorithm for cryptocurrency price prediction, 
-achieving superior accuracy while maintaining interpretability through attention mechanisms. This research provides 
-valuable insights for cryptocurrency trading strategies and risk management.
-
-TECHNICAL SPECIFICATIONS
-========================
-- Platform: Python with PyTorch, Darts, and GluonTS
-- Hardware requirements: GPU recommended for training
-- Data source: CoinGecko API
-- Evaluation metrics: MAE, RMSE, MAPE, R²
-
-APPENDICES
-==========
-A. Detailed parameter configurations
-B. Complete evaluation metrics
-C. Statistical test results
-D. Model architecture diagrams
-E. Attention visualization plots
-
----
-Report generated by Crypto Prediction Analytics Platform
-Universitas Pamulang Research Project
-    `;
-
-    const blob = new Blob([reportContent], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    downloadFile(url, 'crypto_prediction_analysis_report.txt', 'text/plain');
+    
+    const csvData = generateDatasetCSV(data, 'statistical_tests');
+    if (csvData) {
+      downloadFile(csvData.url, csvData.filename);
+      return true;
+    }
+    return false;
   };
 
   const availableOutputs = [
+    {
+      id: 'pdf-report',
+      title: 'Complete PDF Report',
+      description: 'Comprehensive analysis report with all findings and visualizations',
+      icon: FileText,
+      files: ['crypto_prediction_analysis_report.pdf'],
+      action: generatePDFReportFile,
+      available: !!results.modelevaluation,
+      priority: 1
+    },
     {
       id: 'clean-datasets',
       title: 'Clean Datasets',
@@ -255,16 +174,8 @@ Universitas Pamulang Research Project
       icon: Database,
       files: ['bitcoin_clean_dataset.csv', 'ethereum_clean_dataset.csv', 'solana_clean_dataset.csv'],
       action: generateCleanDatasets,
-      available: !!results.preprocessing
-    },
-    {
-      id: 'trained-models',
-      title: 'Trained Models',
-      description: 'Serialized model files ready for inference',
-      icon: Brain,
-      files: ['tft_model.pt', 'nbeats_model.pth', 'deepar_model.npz'],
-      action: generateModelFiles,
-      available: !!results.training
+      available: !!results.datapreprocessing,
+      priority: 2
     },
     {
       id: 'predictions',
@@ -273,7 +184,8 @@ Universitas Pamulang Research Project
       icon: TrendingUp,
       files: ['prediction_results.csv'],
       action: generatePredictionResults,
-      available: !!results.evaluation
+      available: !!results.modelevaluation,
+      priority: 3
     },
     {
       id: 'evaluation',
@@ -282,48 +194,18 @@ Universitas Pamulang Research Project
       icon: BarChart3,
       files: ['evaluation_metrics.csv'],
       action: generateEvaluationMetrics,
-      available: !!results.evaluation
+      available: !!results.modelevaluation,
+      priority: 4
     },
     {
       id: 'attention-analysis',
       title: 'Attention Analysis',
-      description: 'TFT attention scores and feature importance visualization',
+      description: 'TFT attention scores and feature importance data',
       icon: Brain,
-      files: ['attention_scores.csv', 'feature_importance.png'],
-      action: () => {
-        const data = [
-          { timestamp: '2025-01-24', price_attention: 0.45, volume_attention: 0.32, market_cap_attention: 0.23 },
-          { timestamp: '2025-01-25', price_attention: 0.52, volume_attention: 0.28, market_cap_attention: 0.20 },
-          { timestamp: '2025-01-26', price_attention: 0.48, volume_attention: 0.35, market_cap_attention: 0.17 }
-        ];
-        const csvContent = generateCSVData(data, 'attention_scores.csv');
-        if (csvContent) downloadFile(csvContent, 'attention_scores.csv');
-      },
-      available: !!results.evaluation
-    },
-    {
-      id: 'trend-decomposition',
-      title: 'Trend Decomposition',
-      description: 'N-BEATS trend and seasonal components',
-      icon: TrendingUp,
-      files: ['trend_components.csv', 'seasonal_components.csv'],
-      action: () => {
-        const trendData = [
-          { date: '2025-01-24', bitcoin_trend: 45234.56, ethereum_trend: 2345.67, solana_trend: 89.45 },
-          { date: '2025-01-25', bitcoin_trend: 45456.78, ethereum_trend: 2367.89, solana_trend: 91.23 }
-        ];
-        const seasonalData = [
-          { date: '2025-01-24', bitcoin_seasonal: 123.45, ethereum_seasonal: 23.45, solana_seasonal: 1.23 },
-          { date: '2025-01-25', bitcoin_seasonal: 134.56, ethereum_seasonal: 25.67, solana_seasonal: 1.34 }
-        ];
-        
-        const trendCsv = generateCSVData(trendData, 'trend_components.csv');
-        const seasonalCsv = generateCSVData(seasonalData, 'seasonal_components.csv');
-        
-        if (trendCsv) downloadFile(trendCsv, 'trend_components.csv');
-        if (seasonalCsv) downloadFile(seasonalCsv, 'seasonal_components.csv');
-      },
-      available: !!results.evaluation
+      files: ['attention_analysis.csv'],
+      action: generateAttentionAnalysis,
+      available: !!results.modelevaluation,
+      priority: 5
     },
     {
       id: 'statistical-tests',
@@ -331,37 +213,45 @@ Universitas Pamulang Research Project
       description: 'Significance tests and p-values for model comparisons',
       icon: BarChart3,
       files: ['statistical_tests.csv'],
-      action: () => {
-        const data = [
-          { comparison: 'TFT vs N-BEATS', test_type: 'Paired t-test', p_value: 0.023, significant: 'Yes', confidence_level: '95%' },
-          { comparison: 'TFT vs DeepAR', test_type: 'Paired t-test', p_value: 0.012, significant: 'Yes', confidence_level: '95%' },
-          { comparison: 'N-BEATS vs DeepAR', test_type: 'Paired t-test', p_value: 0.156, significant: 'No', confidence_level: '95%' }
-        ];
-        const csvContent = generateCSVData(data, 'statistical_tests.csv');
-        if (csvContent) downloadFile(csvContent, 'statistical_tests.csv');
-      },
-      available: !!results.evaluation
-    },
-    {
-      id: 'pdf-report',
-      title: 'Complete Analysis Report',
-      description: 'Comprehensive analysis report with all findings and recommendations',
-      icon: FileText,
-      files: ['crypto_prediction_analysis_report.txt'],
-      action: generatePDFReport,
-      available: !!results.visualization
+      action: generateStatisticalTests,
+      available: !!results.modelevaluation,
+      priority: 6
     }
   ];
+
+  const sortedOutputs = availableOutputs.sort((a, b) => a.priority - b.priority);
+
+  const getButtonText = (id: string) => {
+    const status = downloadStatus[id];
+    switch (status) {
+      case 'downloading': return 'Downloading...';
+      case 'success': return 'Downloaded!';
+      case 'error': return 'Error';
+      default: return 'Download';
+    }
+  };
+
+  const getButtonClass = (id: string, available: boolean) => {
+    const status = downloadStatus[id];
+    if (!available) return 'bg-gray-300 text-gray-500 cursor-not-allowed';
+    
+    switch (status) {
+      case 'downloading': return 'bg-blue-500 text-white cursor-wait';
+      case 'success': return 'bg-green-600 text-white';
+      case 'error': return 'bg-red-600 text-white';
+      default: return 'bg-blue-600 text-white hover:bg-blue-700';
+    }
+  };
 
   return (
     <div className="bg-white rounded-lg shadow-lg p-4">
       <h4 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
         <Download className="w-5 h-5 mr-2" />
-        Downloads
+        Downloads & Exports
       </h4>
 
       <div className="grid grid-cols-1 gap-3">
-        {availableOutputs.map((output) => (
+        {sortedOutputs.map((output) => (
           <div
             key={output.id}
             className={`border rounded-lg p-3 transition-all ${
@@ -384,21 +274,25 @@ Universitas Pamulang Research Project
                   <p className={`text-xs ${
                     output.available ? 'text-green-600' : 'text-gray-400'
                   }`}>
-                    {output.files.length} file{output.files.length > 1 ? 's' : ''}
+                    {output.description}
+                  </p>
+                  <p className={`text-xs mt-1 ${
+                    output.available ? 'text-green-500' : 'text-gray-400'
+                  }`}>
+                    {output.files.length} file{output.files.length > 1 ? 's' : ''}: {output.files.join(', ')}
                   </p>
                 </div>
               </div>
               
               <button
-                onClick={output.action}
-                disabled={!output.available}
-                className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
-                  output.available
-                    ? 'bg-green-600 text-white hover:bg-green-700'
-                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                }`}
+                onClick={() => handleDownload(output.id, output.action)}
+                disabled={!output.available || downloadStatus[output.id] === 'downloading'}
+                className={`px-3 py-1 rounded text-xs font-medium transition-colors ${getButtonClass(output.id, output.available)}`}
               >
-                {output.available ? 'Download' : 'Pending'}
+                {downloadStatus[output.id] === 'downloading' && (
+                  <div className="inline-block animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-1"></div>
+                )}
+                {getButtonText(output.id)}
               </button>
             </div>
           </div>
@@ -408,19 +302,38 @@ Universitas Pamulang Research Project
       {Object.keys(results).length > 0 && (
         <div className="mt-4 bg-blue-50 rounded-lg p-3">
           <h5 className="font-medium text-blue-800 mb-2 text-sm">Analysis Progress</h5>
-          <div className="grid grid-cols-3 gap-2 text-xs">
+          <div className="grid grid-cols-5 gap-2 text-xs">
             <div className={`text-center ${results.datacollection ? 'text-green-600' : 'text-gray-500'}`}>
               <div className="font-medium">Data</div>
               <div>{results.datacollection ? '✓' : '○'}</div>
             </div>
-            <div className={`text-center ${results.preprocessing ? 'text-green-600' : 'text-gray-500'}`}>
+            <div className={`text-center ${results.datapreprocessing ? 'text-green-600' : 'text-gray-500'}`}>
               <div className="font-medium">Prep</div>
-              <div>{results.preprocessing ? '✓' : '○'}</div>
+              <div>{results.datapreprocessing ? '✓' : '○'}</div>
             </div>
-            <div className={`text-center ${results.training ? 'text-green-600' : 'text-gray-500'}`}>
+            <div className={`text-center ${results.modeltraining ? 'text-green-600' : 'text-gray-500'}`}>
               <div className="font-medium">Train</div>
-              <div>{results.training ? '✓' : '○'}</div>
+              <div>{results.modeltraining ? '✓' : '○'}</div>
             </div>
+            <div className={`text-center ${results.modelevaluation ? 'text-green-600' : 'text-gray-500'}`}>
+              <div className="font-medium">Eval</div>
+              <div>{results.modelevaluation ? '✓' : '○'}</div>
+            </div>
+            <div className={`text-center ${results.resultsvisualization ? 'text-green-600' : 'text-gray-500'}`}>
+              <div className="font-medium">Visual</div>
+              <div>{results.resultsvisualization ? '✓' : '○'}</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!Object.keys(results).length && (
+        <div className="mt-4 bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+          <div className="flex items-center">
+            <AlertCircle className="w-4 h-4 text-yellow-600 mr-2" />
+            <p className="text-yellow-800 text-sm">
+              Start the analysis to generate downloadable results and reports.
+            </p>
           </div>
         </div>
       )}

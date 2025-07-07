@@ -18,7 +18,7 @@ const Header = () => {
                   Analisis Prediksi Harga Cryptocurrency menggunakan TFT, N-BEATS & DeepAR
                 </p>
                 <p className="text-blue-200 text-sm mt-2 font-medium">
-                  Dikembangkan oleh Ganesha Education | Universitas Pamulang sebagai penelitian Thesis
+                  Dikembangkan oleh Fajar Nugraha | Universitas Pamulang sebagai penelitian Thesis
                 </p>
               </div>
             </div>

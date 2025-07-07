@@ -8,6 +8,7 @@ import ModelTraining from './components/ModelTraining';
 import ModelEvaluation from './components/ModelEvaluation';
 import ResultsVisualization from './components/ResultsVisualization';
 import ResultsStorage from './components/ResultsStorage';
+import RealTimePrediction from './components/RealTimePrediction';
 
 function App() {
   const [currentStep, setCurrentStep] = useState('configuration');
@@ -15,6 +16,7 @@ function App() {
   const [analysisParameters, setAnalysisParameters] = useState<any>(null);
   const [analysisResults, setAnalysisResults] = useState<any>({});
   const [isAnalysisRunning, setIsAnalysisRunning] = useState(false);
+  const [showRealTimePredictions, setShowRealTimePredictions] = useState(false);
 
   const steps = [
     {
@@ -80,6 +82,7 @@ function App() {
       setTimeout(() => setCurrentStep(nextStep), 1000);
     } else {
       setIsAnalysisRunning(false);
+      setShowRealTimePredictions(true);
     }
   };
 
@@ -89,6 +92,7 @@ function App() {
     setAnalysisResults({});
     setAnalysisParameters(null);
     setIsAnalysisRunning(false);
+    setShowRealTimePredictions(false);
   };
 
   return (
@@ -107,7 +111,7 @@ function App() {
               <button
                 onClick={resetAnalysis}
                 disabled={isAnalysisRunning}
-                className={`w-full py-2 px-4 rounded-lg transition-colors ${
+                className={`w-full py-2 px-4 rounded-lg transition-colors mb-3 ${
                   isAnalysisRunning 
                     ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                     : 'bg-blue-600 text-white hover:bg-blue-700'
@@ -115,6 +119,15 @@ function App() {
               >
                 Reset Analysis
               </button>
+
+              {completedSteps.includes('results-visualization') && (
+                <button
+                  onClick={() => setShowRealTimePredictions(!showRealTimePredictions)}
+                  className="w-full py-2 px-4 rounded-lg transition-colors bg-green-600 text-white hover:bg-green-700"
+                >
+                  {showRealTimePredictions ? 'Hide' : 'Show'} Live Predictions
+                </button>
+              )}
               
               <div className="mt-4 text-sm text-gray-600">
                 <p className="mb-2">Status: <span className="font-medium">{steps.find(s => s.id === currentStep)?.title}</span></p>
@@ -175,6 +188,13 @@ function App() {
             <ResultsVisualization 
               isActive={currentStep === 'results-visualization'}
             />
+
+            {/* Real-Time Predictions */}
+            {showRealTimePredictions && (
+              <RealTimePrediction 
+                isActive={showRealTimePredictions}
+              />
+            )}
           </div>
         </div>
       </div>
