@@ -642,11 +642,11 @@ const RealTimePredictionChart: React.FC<RealTimePredictionChartProps> = ({ isAct
           <div className="space-y-2">
             <div className="flex items-center">
               <div className="w-4 h-6 bg-green-500 mr-2 rounded-sm"></div>
-              <span>Bullish Candle (Close > Open)</span>
+              <span>Bullish Candle (Close {'>'} Open)</span>
             </div>
             <div className="flex items-center">
               <div className="w-4 h-6 bg-red-500 mr-2 rounded-sm"></div>
-              <span>Bearish Candle (Close < Open)</span>
+              <span>Bearish Candle (Close {'<'} Open)</span>
             </div>
           </div>
           {showPredictions && (
