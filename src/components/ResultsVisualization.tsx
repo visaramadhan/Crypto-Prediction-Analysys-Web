@@ -3,9 +3,10 @@ import { TrendingUp, Award, BarChart3, PieChart, AlertCircle, CheckCircle } from
 
 interface ResultsVisualizationProps {
   isActive: boolean;
+  onComplete?: (data: any) => void;
 }
 
-const ResultsVisualization: React.FC<ResultsVisualizationProps> = ({ isActive }) => {
+const ResultsVisualization: React.FC<ResultsVisualizationProps> = ({ isActive, onComplete }) => {
   const finalResults = {
     winner: 'Temporal Fusion Transformer (TFT)',
     performance: {
@@ -27,6 +28,15 @@ const ResultsVisualization: React.FC<ResultsVisualizationProps> = ({ isActive })
       'Pertimbangkan ensemble methods untuk meningkatkan robustness'
     ]
   };
+
+  React.useEffect(() => {
+    if (isActive && onComplete) {
+      // Simulate completion after visualization is shown
+      setTimeout(() => {
+        onComplete(finalResults);
+      }, 2000);
+    }
+  }, [isActive, onComplete]);
 
   if (!isActive) {
     return (

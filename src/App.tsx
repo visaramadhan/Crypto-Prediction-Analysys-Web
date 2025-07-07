@@ -9,6 +9,7 @@ import ModelEvaluation from './components/ModelEvaluation';
 import ResultsVisualization from './components/ResultsVisualization';
 import ResultsStorage from './components/ResultsStorage';
 import RealTimePrediction from './components/RealTimePrediction';
+import RealTimePredictionChart from './components/RealTimePredictionChart';
 
 function App() {
   const [currentStep, setCurrentStep] = useState('configuration');
@@ -187,13 +188,19 @@ function App() {
             
             <ResultsVisualization 
               isActive={currentStep === 'results-visualization'}
+              onComplete={(data) => handleStepComplete('results-visualization', data)}
             />
 
             {/* Real-Time Predictions */}
             {showRealTimePredictions && (
-              <RealTimePrediction 
-                isActive={showRealTimePredictions}
-              />
+              <>
+                <RealTimePrediction 
+                  isActive={showRealTimePredictions}
+                />
+                <RealTimePredictionChart 
+                  isActive={showRealTimePredictions}
+                />
+              </>
             )}
           </div>
         </div>
